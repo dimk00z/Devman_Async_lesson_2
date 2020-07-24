@@ -20,7 +20,7 @@ PLASMA_GUN_ERA = 2020
 STARS_NUMBER = 200
 DEV_MODE = False
 
-space_objects = []
+courutines = []
 obstacles = []
 obstacles_in_last_collisions = []
 rocket_frames = get_rockets_frames()
@@ -84,7 +84,7 @@ async def run_spaceship(canvas, start_row, start_col):
             await show_gameover(canvas, start_row, start_col)
 
         if space_pressed and year >= PLASMA_GUN_ERA:
-            space_objects.append(
+            courutines.append(
                 fire(canvas, row, column + frame_size[1] // 2))
 
         draw_frame(canvas, row, column, temp_spaceship_frame)
@@ -176,7 +176,7 @@ async def fill_orbit_with_garbage(canvas, max_width):
     while True:
         delay_tics = get_garbage_delay_tics(year)
         if delay_tics:
-            space_objects.append(
+            courutines.append(
                 fly_garbage(canvas,
                             random.randint(FRAME_BORDER_SIZE,
                                            max_width - FRAME_BORDER_SIZE),
@@ -201,37 +201,37 @@ def draw(canvas):
     info_window = canvas.derwin(
         1, INFO_WINDOW_WIDTH, max_height - FRAME_BORDER_SIZE, center_col)
 
-    global space_objects
-    space_objects = [blink(canvas,
-                           random.randint(1, max_height),
-                           random.randint(1, max_width),
-                           random.choice(list(STARTS_SIMBOLS)))
-                     for _ in range(STARS_NUMBER)]
+    global courutines
+    courutines = [blink(canvas,
+                        random.randint(1, max_height),
+                        random.randint(1, max_width),
+                        random.choice(list(STARTS_SIMBOLS)))
+                  for _ in range(STARS_NUMBER)]
 
-    space_objects.append(animate_spaceship())
-    space_objects.append(run_spaceship(canvas, center_row, center_col))
-    space_objects.append(fill_orbit_with_garbage(canvas, max_width))
-    space_objects.append(show_messages(info_window))
-    space_objects.append(change_years())
+    courutines.append(animate_spaceship())
+    courutines.append(run_spaceship(canvas, center_row, center_col))
+    courutines.append(fill_orbit_with_garbage(canvas, max_width))
+    courutines.append(show_messages(info_window))
+    courutines.append(change_years())
 
     if DEV_MODE:
-        space_objects.append(show_obstacles(canvas, obstacles))
+        courutines.append(show_obstacles(canvas, obstacles))
 
     canvas.refresh()
     while True:
         exhausted_coroutines = []
-        for space_object in space_objects:
+        for courutine in courutines:
             try:
-                space_object.send(None)
+                courutine.send(None)
             except StopIteration:
-                exhausted_coroutines.append(space_object)
+                exhausted_coroutines.append(courutine)
 
         canvas.border()
         canvas.refresh()
         info_window.refresh()
         time.sleep(TIC_TIMEOUT)
         for coroutine_to_remove in exhausted_coroutines:
-            space_objects.remove(coroutine_to_remove)
+            courutines.remove(coroutine_to_remove)
 
 
 if __name__ == '__main__':
