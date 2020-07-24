@@ -15,4 +15,4 @@ Script uses standart python libs, you don't have to install other packages.
 
 ### The aim of the project
 
-This code was written for self-education on online course for Python developers [dvmn.org](https://dvmn.org/).
+This code was written for self-education on the online course for Python developers [dvmn.org](https://dvmn.org/).
