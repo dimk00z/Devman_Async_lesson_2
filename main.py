@@ -1,16 +1,133 @@
-import time
-import curses
-import asyncio
 import random
-import curses_tools
+import time
+import asyncio
+import curses
+
+from curses_tools import draw_frame, read_controls, get_frame_size
+from frames import get_rockets_frames, get_garbage_frames
+from physics import update_speed
+from explosion import explode
+from game_over import show_gameover
+from obstacles import Obstacle, show_obstacles
+from game_scenario import PHRASES, get_garbage_delay_tics
 
 TIC_TIMEOUT = 0.1
 STARTS_SIMBOLS = '+*.:'
-STARS_NUMBER = 100
-BORDER_SIZE = 2
+FRAME_BORDER_SIZE = 2
+YEAR_TICS = int(1.5 / TIC_TIMEOUT)
+INFO_WINDOW_WIDTH = 50
+PLASMA_GUN_ERA = 2020
+STARS_NUMBER = 200
+DEV_MODE = False
+
+space_objects = []
+obstacles = []
+obstacles_in_last_collisions = []
+rocket_frames = get_rockets_frames()
+spaceship_frame = rocket_frames[0]
+year = 1957
 
 
-async def blink(canvas, row, column, symbol='*', TIC_TIMEOT=0.1):
+async def sleep(tics=1):
+    for _ in range(tics):
+        await asyncio.sleep(0)
+
+
+async def change_years():
+    global year
+    while True:
+        for _ in range(YEAR_TICS):
+            await asyncio.sleep(0)
+        year += 1
+
+
+async def show_messages(canvas):
+    message_template = "Year: {} {}"
+    while True:
+        yr = message_template.format(year, PHRASES.get(year, ''))
+        draw_frame(canvas, 0, 0, yr)
+        await asyncio.sleep(0)
+        draw_frame(canvas, 0, 0, yr, negative=True)
+
+
+async def animate_spaceship():
+    global spaceship_frame
+    while True:
+        for frame in rocket_frames:
+            spaceship_frame = frame
+            await sleep()
+
+
+async def run_spaceship(canvas, start_row, start_col):
+    row, column = start_row, start_col
+    row_speed, column_speed = 0, 0
+    min_row, min_column = FRAME_BORDER_SIZE, FRAME_BORDER_SIZE
+    max_row, max_column = get_max_height_width_of_canvas(canvas)
+
+    while True:
+        temp_spaceship_frame = spaceship_frame
+        frame_size = get_frame_size(temp_spaceship_frame)
+
+        move_row, move_column, space_pressed = read_controls(canvas)
+        row_speed, column_speed = update_speed(
+            row_speed, column_speed, move_row, move_column)
+        row, column = row + row_speed, column + column_speed
+
+        column = min(max(min_column, column), max_column -
+                     frame_size[1] - FRAME_BORDER_SIZE)
+        row = min(max(min_row, row), max_row -
+                  frame_size[0] - FRAME_BORDER_SIZE)
+
+        collisions = [obstacle
+                      for obstacle in obstacles if obstacle.has_collision(row, column, frame_size[0], frame_size[1])]
+        if collisions:
+            await show_gameover(canvas, start_row, start_col)
+
+        if space_pressed and year >= PLASMA_GUN_ERA:
+            space_objects.append(
+                fire(canvas, row, column + frame_size[1] // 2))
+
+        draw_frame(canvas, row, column, temp_spaceship_frame)
+
+        await sleep()
+        draw_frame(canvas, row, column, temp_spaceship_frame, negative=True)
+
+
+async def fire(canvas, start_row, start_column, rows_speed=-0.3, columns_speed=0):
+
+    row, column = start_row, start_column
+
+    canvas.addstr(round(row), round(column), '*')
+    await sleep()
+
+    canvas.addstr(round(row), round(column), 'O')
+    await sleep()
+    canvas.addstr(round(row), round(column), ' ')
+
+    row += rows_speed
+    column += columns_speed
+
+    symbol = '-' if columns_speed else '|'
+
+    max_row, max_column = get_max_height_width_of_canvas(canvas)
+    curses.beep()
+
+    while 0 < row < max_row and 0 < column < max_column:
+        canvas.addstr(round(row), round(column), symbol)
+        await sleep()
+        canvas.addstr(round(row), round(column), ' ')
+
+        collisions = [obstacle
+                      for obstacle in obstacles if obstacle.has_collision(round(row), round(column))]
+        if collisions:
+            obstacles_in_last_collisions.extend(collisions)
+            return
+
+        row += rows_speed
+        column += columns_speed
+
+
+async def blink(canvas, row, column, symbol='*'):
     while True:
         canvas.addstr(row, column, symbol, curses.A_DIM)
         for i in range(random.randint(1, 21)):
@@ -26,93 +143,95 @@ async def blink(canvas, row, column, symbol='*', TIC_TIMEOT=0.1):
             await asyncio.sleep(0)
 
 
-def load_rocket_frames():
-    rocket_frames = []
-    for file_name in ['rocket_frame_1.txt', 'rocket_frame_2.txt']:
-        with open(file_name, "r", encoding="UTF-8") as rocket_frame_file:
-            rocket_frames.append(rocket_frame_file.read())
-    return rocket_frames
+async def fly_garbage(canvas, column, garbage_frame, speed=0.5):
+    rows_number, columns_number = canvas.getmaxyx()
 
+    column = max(column, 0)
+    column = min(column, columns_number - 1)
 
-async def animate_rocket(canvas, row, column, rocket_frames):
-    while True:
-        for rocket_frame in rocket_frames:
-            row, column = get_rocket_position(
-                canvas, row, column, controls, rocket_frame)
-            curses_tools.draw_frame(
-                canvas, row, column, rocket_frame)
-            await asyncio.sleep(0)
-            curses_tools.draw_frame(
-                canvas, row, column, rocket_frame, negative=True)
+    row = 0
+    row_size, column_size = get_frame_size(garbage_frame)
+    obstacle = Obstacle(row, column, row_size, column_size)
+    obstacles.append(obstacle)
 
-
-def get_rocket_position(canvas, current_row, current_column, controls, frame):
-    rows, columns = canvas.getmaxyx()
-    max_row, max_column = rows - BORDER_SIZE, columns - BORDER_SIZE
-    frame_rows, frame_columns = get_frame_size(frame)
-    controls_row, controls_column, _ = controls
-    row, column = current_row + controls_row, current_column + controls_column
-    row = max(BORDER_SIZE, min(row, max_row - frame_rows))
-    column = max(BORDER_SIZE, min(column, max_column - frame_columns))
-    return row, column
-
-
-async def fire(canvas, start_row, start_column, rows_speed=-0.3, columns_speed=0):
-    """Display animation of gun shot. Direction and speed can be specified."""
-    row, column = start_row, start_column
-    canvas.addstr(round(row), round(column), '*')
-    await asyncio.sleep(0)
-    canvas.addstr(round(row), round(column), 'O')
-    await asyncio.sleep(0)
-    canvas.addstr(round(row), round(column), ' ')
-    row += rows_speed
-    column += columns_speed
-    symbol = '-' if columns_speed else '|'
-    rows, columns = canvas.getmaxyx()
-    max_row, max_column = rows - 1, columns - 1
-    curses.beep()
-    while BORDER_SIZE < row < max_row and 2 < column < max_column:
-        canvas.addstr(round(row), round(column), symbol)
+    while row < rows_number:
+        draw_frame(canvas, row, column, garbage_frame)
+        obstacle.row, obstacle.column = row, column
         await asyncio.sleep(0)
-        canvas.addstr(round(row), round(column), ' ')
-        row += rows_speed
-        column += columns_speed
+        draw_frame(canvas, row, column, garbage_frame, negative=True)
+
+        if obstacle in obstacles_in_last_collisions:
+            obstacles_in_last_collisions.remove(obstacle)
+            await explode(canvas, row + row_size // 2, column + column_size // 2)
+            break
+
+        row += speed
+
+    obstacles.remove(obstacle)
 
 
-def get_frame_size(frame):
-    lines = frame.splitlines()
-    rows = len(lines)
-    columns = max([len(line) for line in lines])
-    return rows, columns
+async def fill_orbit_with_garbage(canvas, max_width):
+    garbage_objects = get_garbage_frames()
+
+    while True:
+        delay_tics = get_garbage_delay_tics(year)
+        if delay_tics:
+            space_objects.append(
+                fly_garbage(canvas,
+                            random.randint(FRAME_BORDER_SIZE,
+                                           max_width - FRAME_BORDER_SIZE),
+                            garbage_objects[random.randint(0, len(garbage_objects) - 1)]))
+
+        await sleep(delay_tics or 1)
+
+
+def get_max_height_width_of_canvas(canvas):
+    max_height, max_width = canvas.getmaxyx()
+    return max_height - 1, max_width - 1
 
 
 def draw(canvas):
-    canvas.border()
-    canvas.nodelay(True)
     curses.curs_set(False)
-    rows, columns = canvas.getmaxyx()
-    max_row, max_column = rows - BORDER_SIZE, columns - BORDER_SIZE
-    coroutines = [blink(canvas,
-                        random.randint(1, max_row),
-                        random.randint(1, max_column),
-                        random.choice(list(STARTS_SIMBOLS)))
-                  for _ in range(STARS_NUMBER)]
-    rocket_frames = load_rocket_frames()
-    rocket_rows, rocket_columns = get_frame_size(rocket_frames[0])
-    coroutines.append(animate_rocket(
-        canvas,  max_row-10, max_column/2-2, rocket_frames))
-    coroutines.append(fire(canvas, max_row-rocket_rows,
-                           max_column/2, rows_speed=-0.5))
-    global controls
+    canvas.border()
+    canvas.refresh()
+    canvas.nodelay(True)
+    max_height, max_width = get_max_height_width_of_canvas(canvas)
+    center_row, center_col = max_height // 2, max_width // 2
+
+    info_window = canvas.derwin(
+        1, INFO_WINDOW_WIDTH, max_height - FRAME_BORDER_SIZE, center_col)
+
+    global space_objects
+    space_objects = [blink(canvas,
+                           random.randint(1, max_height),
+                           random.randint(1, max_width),
+                           random.choice(list(STARTS_SIMBOLS)))
+                     for _ in range(STARS_NUMBER)]
+
+    space_objects.append(animate_spaceship())
+    space_objects.append(run_spaceship(canvas, center_row, center_col))
+    space_objects.append(fill_orbit_with_garbage(canvas, max_width))
+    space_objects.append(show_messages(info_window))
+    space_objects.append(change_years())
+
+    if DEV_MODE:
+        space_objects.append(show_obstacles(canvas, obstacles))
+
+    canvas.refresh()
     while True:
-        controls = curses_tools.read_controls(canvas)
-        for coroutine in coroutines.copy():
+        exhausted_coroutines = []
+        for space_object in space_objects:
             try:
-                coroutine.send(None)
+                space_object.send(None)
             except StopIteration:
-                coroutines.remove(coroutine)
-        time.sleep(TIC_TIMEOUT)
+                exhausted_coroutines.append(space_object)
+
+        canvas.border()
         canvas.refresh()
+        info_window.refresh()
+        time.sleep(TIC_TIMEOUT)
+        for coroutine_to_remove in exhausted_coroutines:
+            space_objects.remove(coroutine_to_remove)
 
 
 if __name__ == '__main__':
