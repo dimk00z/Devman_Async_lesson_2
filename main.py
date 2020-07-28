@@ -62,7 +62,7 @@ async def run_spaceship(canvas, start_row, start_col):
     row, column = start_row, start_col
     row_speed, column_speed = 0, 0
     min_row, min_column = FRAME_BORDER_SIZE, FRAME_BORDER_SIZE
-    max_row, max_column = get_window_sizes(canvas)
+    max_row, max_column = get_correct_window_dimensions(canvas)
 
     while True:
         temp_spaceship_frame = spaceship_frame
@@ -109,7 +109,7 @@ async def fire(canvas, start_row, start_column, rows_speed=-0.3, columns_speed=0
 
     symbol = '-' if columns_speed else '|'
 
-    max_row, max_column = get_window_sizes(canvas)
+    max_row, max_column = get_correct_window_dimensions(canvas)
     curses.beep()
 
     while 0 < row < max_row and 0 < column < max_column:
@@ -186,9 +186,9 @@ async def fill_orbit_with_garbage(canvas, max_width):
         await sleep(delay_tics or 1)
 
 
-def get_window_sizes(canvas):
-    window_rows, windows_column = canvas.getmaxyx()
-    return window_rows - 1, windows_column - 1
+def get_correct_window_dimensions(canvas):
+    height, width = canvas.getmaxyx()
+    return height - 1, width - 1
 
 
 def draw(canvas):
@@ -196,7 +196,7 @@ def draw(canvas):
     canvas.border()
     canvas.refresh()
     canvas.nodelay(True)
-    max_row, max_column = get_window_sizes(canvas)
+    max_row, max_column = get_correct_window_dimensions(canvas)
     center_row, center_col = max_row // 2, max_column // 2
 
     info_window = canvas.derwin(
